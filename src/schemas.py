@@ -1,13 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional
 
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-
-class TokenData(BaseModel):
-    username: Optional[str] = None
-
 class RoleBase(BaseModel):
     name: str
     can_view_all_requests: Optional[bool] = False
@@ -43,6 +36,7 @@ class RequestLogBase(BaseModel):
     message: str
 
 class RequestLogCreate(RequestLogBase):
+    user_id: int
     response: Optional[str] = None
 
 class RequestLog(RequestLogBase):

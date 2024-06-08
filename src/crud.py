@@ -1,11 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy.orm import Session
-from datetime import timedelta
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from typing import List
 
-from . import models, schemas, database, auth
+from .models import RequestLog
+from .auth.models import Role, User
+from .schemas import RoleCreate, Role as RoleSchema, UserCreate, User as UserSchema, RequestLogCreate, RequestLog as RequestLogSchema
+from .database import get_async_session
 from .telegram import send_message
-from .auth import ACCESS_TOKEN_EXPIRE_MINUTES, create_access_token, get_current_user
 from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -15,58 +17,31 @@ router = APIRouter(
     tags=["API"]
 )
 
-def get_user_by_username(username: str, db: Session = Depends(database.get_db)):
-    user = db.query(models.User).filter(models.User.username == username).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
-
-@router.post("/token", response_model=schemas.Token)
-def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(database.get_db)):
-    user = authenticate_user(form_data.username, form_data.password, db)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
-    )
-    return {"access_token": access_token, "token_type": "bearer"}
-
-@router.post("/authenticate_user")
-def authenticate_user(username: str, password: str, db: Session = Depends(database.get_db)):
-    user = get_user_by_username(username, db)
-    if not user or not pwd_context.verify(password, user.hashed_password):
-        raise HTTPException(status_code=400, detail="Incorrect username or password")
-    return user
-
-@router.post("/create_user", response_model=schemas.User)
-def create_user(user: schemas.UserCreate, db: Session = Depends(database.get_db)):
+@router.post("/create_user", response_model=UserSchema)
+async def create_user(user: UserCreate, db: AsyncSession = Depends(get_async_session)):
     hashed_password = pwd_context.hash(user.password)
-    db_user = models.User(username=user.username, hashed_password=hashed_password, role_id=user.role_id)
+    db_user = User(username=user.username, hashed_password=hashed_password, role_id=user.role_id)
     db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
+    await db.commit()
+    await db.refresh(db_user)
     return db_user
 
-@router.post("/create_role", response_model=schemas.Role)
-def create_role(role: schemas.RoleCreate, db: Session = Depends(database.get_db)):
-    db_role = models.Role(**role.dict())
+@router.post("/create_role", response_model=RoleSchema)
+async def create_role(role: RoleCreate, db: AsyncSession = Depends(get_async_session)):
+    db_role = Role(**role.dict())
     db.add(db_role)
-    db.commit()
-    db.refresh(db_role)
+    await db.commit()
+    await db.refresh(db_role)
     return db_role
 
-@router.get("/roles", response_model=list[schemas.Role])
-def get_roles(db: Session = Depends(database.get_db)):
-    return db.query(models.Role).all()
+@router.get("/roles", response_model=List[RoleSchema])
+async def get_roles(db: AsyncSession = Depends(get_async_session)):
+    result = await db.execute(select(Role))
+    return result.scalars().all()
 
-@router.post("/create_request_log", response_model=schemas.RequestLog)
-def create_request_log(request: schemas.RequestLogCreate, user_id: int, db: Session = Depends(database.get_db)):
-    db_request_log = models.RequestLog(
+@router.post("/create_request_log", response_model=RequestLogSchema)
+async def create_request_log(request: RequestLogCreate, user_id: int, db: AsyncSession = Depends(get_async_session)):
+    db_request_log = RequestLog(
         user_id=user_id,
         bottoken=request.bottoken,
         chatid=request.chatid,
@@ -74,23 +49,26 @@ def create_request_log(request: schemas.RequestLogCreate, user_id: int, db: Sess
         response=request.response
     )
     db.add(db_request_log)
-    db.commit()
-    db.refresh(db_request_log)
+    await db.commit()
+    await db.refresh(db_request_log)
     return db_request_log
 
-@router.post("/send_message", response_model=schemas.RequestLog)
-def send_message_and_log(request: schemas.RequestLogCreate, db: Session = Depends(database.get_db), current_user: schemas.User = Depends(get_current_user)):
-    # Отправляем сообщение в Telegram
+@router.post("/send_message", response_model=RequestLogSchema)
+async def send_message_and_log(request: RequestLogCreate, db: AsyncSession = Depends(get_async_session)):
     response = send_message(request.bottoken, request.chatid, request.message)
-    # Сохраняем запрос и ответ в базу данных
-    db_request_log = models.RequestLog(
-        user_id=current_user.id,
+    db_request_log = RequestLog(
+        user_id=request.user_id,
         bottoken=request.bottoken,
         chatid=request.chatid,
         message=request.message,
         response=response
     )
     db.add(db_request_log)
-    db.commit()
-    db.refresh(db_request_log)
+    await db.commit()
+    await db.refresh(db_request_log)
     return db_request_log
+
+@router.get("/logs", response_model=List[RequestLogSchema])
+async def get_logs(db: AsyncSession = Depends(get_async_session)):
+    result = await db.execute(select(RequestLog))
+    return result.scalars().all()
