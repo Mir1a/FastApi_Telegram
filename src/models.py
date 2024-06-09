@@ -1,6 +1,9 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, Text
 from sqlalchemy.orm import relationship
+
+from .auth.models import User
 from .database import Base
+
 
 class RequestLog(Base):
     __tablename__ = "request_logs"
@@ -11,4 +14,7 @@ class RequestLog(Base):
     message = Column(Text)
     response = Column(Text)
 
-    user = relationship("User")
+    user = relationship("User", back_populates="request_logs")
+
+
+User.request_logs = relationship("RequestLog", back_populates="user")
