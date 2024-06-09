@@ -12,7 +12,7 @@ class UserRead(schemas.BaseUser[int]):
     manager_id: Optional[int] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class UserCreate(schemas.BaseUserCreate):

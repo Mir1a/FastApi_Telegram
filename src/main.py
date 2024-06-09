@@ -26,8 +26,3 @@ app.include_router(
     prefix="/auth",
     tags=["auth"],
 )
-
-
-@app.get("/protected-route", response_model=str)
-async def protected_route(user=Depends(current_user)):
-    return "Hello, world!"

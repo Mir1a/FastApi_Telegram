@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from typing import List
+from typing import List, Annotated
 
 from .models import RequestLog
 from .auth.models import Role, User
@@ -27,7 +27,7 @@ async def get_all_users(db: AsyncSession = Depends(get_async_session)):
 
 
 @router.post("/create_user", response_model=UserSchema)
-async def create_user(user: UserCreate, db: AsyncSession = Depends(get_async_session)):
+async def create_user(user: Annotated[UserCreate, Depends()], db: AsyncSession = Depends(get_async_session)):
     hashed_password = pwd_context.hash(user.password)
     db_user = User(
         username=user.username,
@@ -43,7 +43,7 @@ async def create_user(user: UserCreate, db: AsyncSession = Depends(get_async_ses
 
 
 @router.post("/create_role", response_model=RoleSchema)
-async def create_role(role: RoleCreate, db: AsyncSession = Depends(get_async_session)):
+async def create_role(role: Annotated[RoleCreate, Depends()], db: AsyncSession = Depends(get_async_session)):
     db_role = Role(**role.dict())
     db.add(db_role)
     await db.commit()
@@ -59,7 +59,7 @@ async def get_roles(db: AsyncSession = Depends(get_async_session)):
 
 @router.post("/send_message", response_model=RequestLogSchema)
 async def send_message_and_log(
-    request: RequestLogCreate,
+    request: Annotated[RequestLogCreate, Depends()],
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_session)
 ):
